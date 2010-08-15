@@ -26,6 +26,7 @@ import org.connectbot.transport.TransportFactory;
 import org.connectbot.util.HostDatabase;
 import org.connectbot.util.PreferenceConstants;
 import org.connectbot.util.UpdateHelper;
+import org.connectbot.LocaleReceiver;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -70,6 +71,17 @@ public class HostListActivity extends ListActivity {
 
 	public final static int REQUEST_EULA = 2;
 
+	private static final int MENU_SAVE = 1;
+	private static final int MENU_DONT_SAVE = 2;
+
+	// from locale_platform.jar
+	private static final String ACTION_EDIT_SETTING = "com.twofortyfouram.locale.intent.action.EDIT_SETTING";
+	private static final String EXTRA_BUNDLE = "com.twofortyfouram.locale.intent.extra.BUNDLE";
+	private static final int MAXIMUM_BLURB_LENGTH = 40;
+	private static final String EXTRA_STRING_BLURB = "com.twofortyfouram.locale.intent.extra.BLURB";
+	private static final String EXTRA_STRING_BREADCRUMB = "com.twofortyfouram.locale.intent.extra.BREADCRUMB";
+	private static final String BREADCRUMB_SEPARATOR = " > ";
+
 	protected TerminalManager bound = null;
 
 	protected HostDatabase hostdb;
@@ -87,7 +99,10 @@ public class HostListActivity extends ListActivity {
 
 	private SharedPreferences prefs = null;
 
-	protected boolean makingShortcut = false;
+	private static final int MODE_MAIN = 1;
+	private static final int MODE_SHORTCUT = 2;
+	private static final int MODE_LOCALE = 3;
+	protected int mode = MODE_MAIN;
 
 	protected Handler updateHandler = new Handler() {
 		@Override
@@ -178,7 +193,26 @@ public class HostListActivity extends ListActivity {
 		// start thread to check for new version
 		new UpdateHelper(this);
 
-		this.makingShortcut = Intent.ACTION_CREATE_SHORTCUT.equals(getIntent().getAction());
+		String action = getIntent().getAction();
+		if (Intent.ACTION_CREATE_SHORTCUT.equals(action)) {
+			mode = MODE_SHORTCUT;
+
+		} else if (ACTION_EDIT_SETTING.equals(action)) {
+			mode = MODE_LOCALE;
+			setResult(RESULT_CANCELED);  // to be changed on list item click
+
+			final String breadcrumbString = getIntent().getStringExtra(EXTRA_STRING_BREADCRUMB);
+			if (breadcrumbString != null)
+				setTitle(String.format("%s%s%s", breadcrumbString, BREADCRUMB_SEPARATOR, getString(R.string.app_name))); //$NON-NLS-1$
+
+			if (icicle == null) {
+				final Bundle forwardedBundle = getIntent().getBundleExtra(EXTRA_BUNDLE);
+				if (forwardedBundle != null) {
+					final String uri = getIntent().getStringExtra(LocaleReceiver.EXTRA_URI);
+					// TODO: list.setSelection(...);
+				}
+			}
+		}
 
 		// connect with hosts database and populate list
 		this.hostdb = new HostDatabase(this);
@@ -199,7 +233,7 @@ public class HostListActivity extends ListActivity {
 				Intent contents = new Intent(Intent.ACTION_VIEW, uri);
 				contents.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-				if (makingShortcut) {
+				if (mode == MODE_SHORTCUT) {
 					// create shortcut if requested
 					ShortcutIconResource icon = Intent.ShortcutIconResource.fromContext(HostListActivity.this, R.drawable.icon);
 
@@ -209,6 +243,20 @@ public class HostListActivity extends ListActivity {
 					intent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE, icon);
 
 					setResult(RESULT_OK, intent);
+					finish();
+
+				} else if (mode == MODE_LOCALE) {
+					final Intent returnIntent = new Intent();
+					final Bundle storeAndForwardExtras = new Bundle();
+					storeAndForwardExtras.putString(LocaleReceiver.EXTRA_URI, uri.toString());
+					returnIntent.putExtra(EXTRA_BUNDLE, storeAndForwardExtras);
+					String message = host.getNickname();
+					if (message.length() > MAXIMUM_BLURB_LENGTH)
+						returnIntent.putExtra(EXTRA_STRING_BLURB, message.substring(0, MAXIMUM_BLURB_LENGTH));
+					else
+						returnIntent.putExtra(EXTRA_STRING_BLURB, message);
+
+					setResult(RESULT_OK, returnIntent);
 					finish();
 
 				} else {
@@ -221,7 +269,7 @@ public class HostListActivity extends ListActivity {
 		this.registerForContextMenu(list);
 
 		quickconnect = (TextView) this.findViewById(R.id.front_quickconnect);
-		quickconnect.setVisibility(makingShortcut ? View.GONE : View.VISIBLE);
+		quickconnect.setVisibility((mode == MODE_MAIN) ? View.VISIBLE : View.GONE);
 		quickconnect.setOnKeyListener(new OnKeyListener() {
 
 			public boolean onKey(View v, int keyCode, KeyEvent event) {
@@ -234,7 +282,7 @@ public class HostListActivity extends ListActivity {
 		});
 
 		transportSpinner = (Spinner)findViewById(R.id.transport_selection);
-		transportSpinner.setVisibility(makingShortcut ? View.GONE : View.VISIBLE);
+		transportSpinner.setVisibility((mode == MODE_MAIN) ? View.VISIBLE : View.GONE);
 		ArrayAdapter<String> transportSelection = new ArrayAdapter<String>(this,
 				android.R.layout.simple_spinner_item, TransportFactory.getTransportNames());
 		transportSelection.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -260,7 +308,7 @@ public class HostListActivity extends ListActivity {
 		super.onPrepareOptionsMenu(menu);
 
 		// don't offer menus when creating shortcut
-		if (makingShortcut) return true;
+		if (mode != MODE_MAIN) return true;
 
 		sortcolor.setVisible(!sortedByColor);
 		sortlast.setVisible(sortedByColor);
@@ -273,7 +321,7 @@ public class HostListActivity extends ListActivity {
 		super.onCreateOptionsMenu(menu);
 
 		// don't offer menus when creating shortcut
-		if(makingShortcut) return true;
+		if(mode != MODE_MAIN) return true;
 
 		// add host, ssh keys, about
 		sortcolor = menu.add(R.string.list_menu_sortcolor);

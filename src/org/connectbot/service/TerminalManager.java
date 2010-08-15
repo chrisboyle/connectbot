@@ -705,4 +705,19 @@ public class TerminalManager extends Service implements BridgeDisconnectedListen
 			mPendingReconnect.clear();
 		}
 	}
+
+	@Override
+	public void onStart(Intent intent, int startId) {
+		try {
+			openConnection(intent.getData());
+		} catch (Exception e) {}
+	}
+
+	@Override
+	public int onStartCommand(Intent intent, int flags, int startId) {
+		try {
+			openConnection(intent.getData());
+		} catch (Exception e) {}
+		return START_NOT_STICKY;
+	}
 }
